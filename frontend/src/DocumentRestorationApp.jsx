@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Download, Settings, RotateCcw, Trash2, History, AlertCircle, CheckCircle, Loader, Sparkles } from 'lucide-react';
+import { Upload, Download, Settings, RotateCcw, Trash2, History, AlertCircle, CheckCircle, Loader, Sparkles, HelpCircle, Book } from 'lucide-react';
 
 const DocumentRestorationApp = () => {
   const [activeTab, setActiveTab] = useState('processor');
@@ -109,7 +109,8 @@ const DocumentRestorationApp = () => {
       formData.append('radius', radius);
       formData.append('alpha', alpha);
 
-      const response = await fetch('http://localhost:5000/api/process', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const response = await fetch(`${apiUrl}/api/process`, {
         method: 'POST',
         body: formData
       });
@@ -136,7 +137,8 @@ const DocumentRestorationApp = () => {
     setProcessing(true);
 
     try {
-      const response = await fetch(`http://localhost:5000/api/apply-cleaning/${processId}`, {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const response = await fetch(`${apiUrl}/api/apply-cleaning/${processId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cleaning_strength: cleaningStrength })
@@ -160,7 +162,8 @@ const DocumentRestorationApp = () => {
     setProcessing(true);
 
     try {
-      const response = await fetch(`http://localhost:5000/api/reprocess/${processId}`, {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const response = await fetch(`${apiUrl}/api/reprocess/${processId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ radius, alpha })
@@ -180,24 +183,74 @@ const DocumentRestorationApp = () => {
     }
   };
 
-  const downloadDocument = async (format) => {
+  // ✅ INDEPENDENT DOWNLOAD FUNCTIONS
+  const downloadShadowRemoved = async () => {
     if (!processId) return;
-
     try {
-      const response = await fetch(`http://localhost:5000/api/download/${processId}/${format}`);
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const response = await fetch(`${apiUrl}/api/download/${processId}/original`);
       if (!response.ok) throw new Error('Download failed');
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = format === 'pdf' ? 'document.pdf' : 'document.png';
+      a.download = 'document_shadow_removed.png';
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
       
-      showMessage(`Downloaded as ${format.toUpperCase()}`, 'success');
+      showMessage('Downloaded shadow-removed version', 'success');
+    } catch (error) {
+      showMessage('Download failed', 'error');
+    }
+  };
+
+  const downloadCleaned = async () => {
+    if (!processId || !isCleaned) {
+      showMessage('Please apply cleaning first', 'error');
+      return;
+    }
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const response = await fetch(`${apiUrl}/api/download/${processId}/original`);
+      if (!response.ok) throw new Error('Download failed');
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'document_cleaned.png';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      showMessage('Downloaded cleaned version', 'success');
+    } catch (error) {
+      showMessage('Download failed', 'error');
+    }
+  };
+
+  const downloadPDF = async (version = 'shadow-removed') => {
+    if (!processId) return;
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const response = await fetch(`${apiUrl}/api/download/${processId}/pdf`);
+      if (!response.ok) throw new Error('Download failed');
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `document_${version}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      showMessage(`Downloaded ${version} PDF`, 'success');
     } catch (error) {
       showMessage('Download failed', 'error');
     }
@@ -220,7 +273,8 @@ const DocumentRestorationApp = () => {
   const fetchHistory = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:5000/api/history');
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const response = await fetch(`${apiUrl}/api/history`);
       const data = await response.json();
       setHistory(data.history || []);
     } catch (error) {
@@ -234,7 +288,8 @@ const DocumentRestorationApp = () => {
     if (!window.confirm('Delete this entry?')) return;
 
     try {
-      const response = await fetch(`http://localhost:5000/api/history/${id}`, {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const response = await fetch(`${apiUrl}/api/history/${id}`, {
         method: 'DELETE'
       });
 
@@ -252,7 +307,7 @@ const DocumentRestorationApp = () => {
       <div className="max-w-7xl mx-auto p-4 md:p-8">
         <div className="mb-8">
           <h1 className="text-5xl font-bold text-white mb-2">Document Restorer</h1>
-          <p className="text-slate-400 text-lg">Remove shadows, then optionally clean</p>
+          <p className="text-slate-400 text-lg">Remove shadows, clean documents, download what you need</p>
         </div>
 
         {message && (
@@ -266,7 +321,7 @@ const DocumentRestorationApp = () => {
           </div>
         )}
 
-        <div className="flex gap-4 mb-8 border-b border-slate-700">
+        <div className="flex gap-4 mb-8 border-b border-slate-700 flex-wrap">
           <button
             onClick={() => setActiveTab('processor')}
             className={`px-6 py-3 font-semibold text-lg ${activeTab === 'processor' ? 'text-white border-b-2 border-blue-500' : 'text-slate-400'}`}
@@ -278,6 +333,13 @@ const DocumentRestorationApp = () => {
             className={`px-6 py-3 font-semibold text-lg ${activeTab === 'history' ? 'text-white border-b-2 border-blue-500' : 'text-slate-400'}`}
           >
             History
+          </button>
+          <button
+            onClick={() => setActiveTab('help')}
+            className={`px-6 py-3 font-semibold text-lg flex items-center gap-2 ${activeTab === 'help' ? 'text-white border-b-2 border-blue-500' : 'text-slate-400'}`}
+          >
+            <HelpCircle size={20} />
+            Help & Guide
           </button>
         </div>
 
@@ -318,13 +380,13 @@ const DocumentRestorationApp = () => {
                       </div>
                     )}
                     
-                    {/* Fourier */}
+                    {/* Shadow Removed */}
                     {fourierPreview && (
                       <div>
-                        <p className="text-slate-400 text-sm mb-2 font-semibold text-center">Shadow Removed</p>
+                        <p className="text-blue-400 text-sm mb-2 font-semibold text-center">Shadow Removed</p>
                         <img 
-                          src={`http://localhost:5000${fourierPreview}`} 
-                          alt="Fourier" 
+                          src={`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}${fourierPreview}`} 
+                          alt="Shadow Removed" 
                           className="w-full rounded-lg border border-blue-600"
                         />
                       </div>
@@ -335,7 +397,7 @@ const DocumentRestorationApp = () => {
                       <div>
                         <p className="text-emerald-400 text-sm mb-2 font-semibold text-center">✨ Cleaned</p>
                         <img 
-                          src={`http://localhost:5000${cleanedPreview}`} 
+                          src={`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}${cleanedPreview}`} 
                           alt="Cleaned" 
                           className="w-full rounded-lg border border-emerald-600"
                         />
@@ -343,11 +405,54 @@ const DocumentRestorationApp = () => {
                     )}
                   </div>
                   
-                  {/* Download Buttons */}
-                  <div className="flex gap-3">
-                    <button onClick={() => downloadDocument('original')} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-lg font-semibold">Download PNG</button>
-                    <button onClick={() => downloadDocument('pdf')} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold">Download PDF</button>
-                  </div>
+                  {/* DOWNLOAD SECTION - INDEPENDENT OPTIONS */}
+                  {processId && (
+                    <div className="space-y-4">
+                      <div className="bg-slate-700/50 p-4 rounded-lg">
+                        <h4 className="text-white font-semibold mb-3">📥 Download Options</h4>
+                        
+                        {/* Shadow Removed Downloads */}
+                        <div className="mb-4 pb-4 border-b border-slate-600">
+                          <p className="text-slate-300 text-sm mb-2">Shadow Removed Version:</p>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={downloadShadowRemoved}
+                              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold"
+                            >
+                              📄 Download PNG
+                            </button>
+                            <button 
+                              onClick={() => downloadPDF('shadow-removed')}
+                              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold"
+                            >
+                              📕 Download PDF
+                            </button>
+                          </div>
+                        </div>
+                        
+                        {/* Cleaned Downloads (only if cleaned) */}
+                        {isCleaned && (
+                          <div>
+                            <p className="text-slate-300 text-sm mb-2">✨ Cleaned Version:</p>
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={downloadCleaned}
+                                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg text-sm font-semibold"
+                              >
+                                📄 Download PNG
+                              </button>
+                              <button 
+                                onClick={() => downloadPDF('cleaned')}
+                                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg text-sm font-semibold"
+                              >
+                                📕 Download PDF
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -420,7 +525,7 @@ const DocumentRestorationApp = () => {
                   </h3>
 
                   <p className="text-slate-400 text-sm mb-4">
-                    Happy with shadow removal? Add gentle cleaning to enhance clarity.
+                    Happy with shadow removal? Add gentle cleaning to remove color cast.
                   </p>
 
                   <div className="mb-4">
@@ -461,7 +566,7 @@ const DocumentRestorationApp = () => {
 
                   {isCleaned && (
                     <p className="text-slate-400 text-xs mt-3 text-center">
-                      See the cleaned version in the right preview ➜
+                      Cleaned preview available - download above ➜
                     </p>
                   )}
                 </div>
@@ -470,6 +575,7 @@ const DocumentRestorationApp = () => {
           </div>
         )}
 
+        {/* HISTORY TAB */}
         {activeTab === 'history' && (
           <div>
             {loading ? (
@@ -490,14 +596,106 @@ const DocumentRestorationApp = () => {
                       <div><p className="text-slate-400 text-sm">Pages</p><p className="text-white font-semibold text-sm">{item.page_count}</p></div>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => downloadDocument('original')} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold transition">PNG</button>
-                      <button onClick={() => downloadDocument('pdf')} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg text-sm font-semibold transition">PDF</button>
+                      <button onClick={() => {}} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold transition">Preview</button>
                       <button onClick={() => deleteHistoryEntry(item.id)} className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg text-sm font-semibold transition">Delete</button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* HELP & GUIDE TAB */}
+        {activeTab === 'help' && (
+          <div className="max-w-4xl">
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 space-y-6">
+              
+              <div>
+                <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+                  <Book size={28} />
+                  How to Use Document Restorer
+                </h2>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-slate-700/30 p-4 rounded-lg border border-slate-600">
+                  <h3 className="text-white font-semibold mb-2">📤 Step 1: Upload Your Document</h3>
+                  <p className="text-slate-300 text-sm">
+                    Drag and drop an image or PDF onto the upload area, or click to browse your files. 
+                    Supported formats: PNG, JPG, GIF, BMP, TIFF, PDF. Maximum file size: 50MB.
+                  </p>
+                </div>
+
+                <div className="bg-slate-700/30 p-4 rounded-lg border border-slate-600">
+                  <h3 className="text-white font-semibold mb-2">🌑 Step 2: Remove Shadows</h3>
+                  <p className="text-slate-300 text-sm mb-3">
+                    Choose a shadow level or use advanced settings:
+                  </p>
+                  <div className="text-slate-400 text-sm space-y-1 ml-4">
+                    <p><strong>Light:</strong> Gentle removal, best for subtle shadows</p>
+                    <p><strong>Medium:</strong> Balanced removal, recommended for most documents</p>
+                    <p><strong>Heavy:</strong> Aggressive removal, for heavy shadows</p>
+                  </div>
+                  <p className="text-slate-300 text-sm mt-3">
+                    Click "Remove Shadows" to process your document. The shadow removal uses advanced 
+                    Fourier Transform technology to intelligently remove shadows while preserving text.
+                  </p>
+                </div>
+
+                <div className="bg-slate-700/30 p-4 rounded-lg border border-slate-600">
+                  <h3 className="text-white font-semibold mb-2">✨ Step 3 (Optional): Apply Cleaning</h3>
+                  <p className="text-slate-300 text-sm mb-3">
+                    After shadow removal, you can optionally apply gentle cleaning to remove color cast 
+                    (yellow/orange tint) and improve document clarity:
+                  </p>
+                  <div className="text-slate-400 text-sm space-y-1 ml-4">
+                    <p><strong>Light:</strong> Minimal cleaning, preserves natural look</p>
+                    <p><strong>Medium:</strong> Balanced cleaning, recommended (removes 70% of color cast)</p>
+                    <p><strong>Heavy:</strong> Aggressive cleaning (removes 95% of color cast)</p>
+                  </div>
+                  <p className="text-slate-300 text-sm mt-3">
+                    <strong>Cleaning is optional</strong> — you can download the shadow-removed version 
+                    without cleaning if you prefer.
+                  </p>
+                </div>
+
+                <div className="bg-slate-700/30 p-4 rounded-lg border border-slate-600">
+                  <h3 className="text-white font-semibold mb-2">📥 Step 4: Download Your Document</h3>
+                  <p className="text-slate-300 text-sm mb-3">
+                    You can download independently:
+                  </p>
+                  <div className="text-slate-400 text-sm space-y-2 ml-4">
+                    <p><strong>Shadow-Removed Version:</strong> Download this if you're happy with just shadow removal</p>
+                    <p><strong>Cleaned Version:</strong> Download this if you applied cleaning and want the final result</p>
+                    <p><strong>PNG Format:</strong> High-quality image format for viewing and editing</p>
+                    <p><strong>PDF Format:</strong> Professional format for documents and printing</p>
+                  </div>
+                </div>
+
+                <div className="bg-blue-900/30 p-4 rounded-lg border border-blue-700">
+                  <h3 className="text-blue-300 font-semibold mb-2">💡 Tips for Best Results</h3>
+                  <ul className="text-slate-300 text-sm space-y-1 ml-4">
+                    <li>• Use "Medium" shadow level and "Medium" cleaning for most documents</li>
+                    <li>• Handwritten documents: use "Light" cleaning to preserve natural look</li>
+                    <li>• Printed documents: use "Heavy" cleaning for crisp text</li>
+                    <li>• You can reprocess with different settings without re-uploading</li>
+                    <li>• All documents are processed securely and deleted after download</li>
+                  </ul>
+                </div>
+
+                <div className="bg-emerald-900/30 p-4 rounded-lg border border-emerald-700">
+                  <h3 className="text-emerald-300 font-semibold mb-2">🎯 Advanced Settings</h3>
+                  <p className="text-slate-300 text-sm mb-2">
+                    For power users, click "Advanced" under Shadow Removal to fine-tune:
+                  </p>
+                  <div className="text-slate-400 text-sm space-y-1 ml-4">
+                    <p><strong>Radius (10-100):</strong> Higher = softer, more natural shadows</p>
+                    <p><strong>Strength (0.1-2.0):</strong> Higher = more aggressive shadow removal</p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
