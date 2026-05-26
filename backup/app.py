@@ -13,17 +13,8 @@ import io
 import fitz
 from document_cleaning import gentle_document_cleaning
 
-# Manual cropping only - no auto-detection needed
-def detect_if_cropping_needed(image):
-    """Placeholder - manual cropping feature"""
-    return False, 0.0
-
-def smart_crop_document(image, auto_crop=True):
-    """Placeholder - manual cropping feature"""
-    return image, {'applied': False, 'bbox': None, 'confidence': 0.0}
-
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:5173", "http://localhost:3000", "https://*vercel.app"])
+CORS(app)
 
 # Configuration
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
@@ -136,7 +127,7 @@ def image_to_pdf(image, output_path):
 
 @app.route('/api/process', methods=['POST'])
 def process_document():
-    """Process with FOURIER ONLY and detect if cropping is needed"""
+    """Process with FOURIER ONLY"""
     try:
         if 'file' not in request.files:
             return jsonify({'error': 'No file provided'}), 400
@@ -163,6 +154,7 @@ def process_document():
         
         print(f"File saved to: {temp_path}")
         
+        # Process based on file type
         if file_ext.lower() == 'pdf':
             images = pdf_to_images(temp_path)
             if not images:
@@ -175,9 +167,7 @@ def process_document():
         
         shadow_intensity = detect_shadow_intensity(images[0])
         
-        # === DETECT IF CROPPING IS NEEDED ===
-        needs_crop, crop_confidence = detect_if_cropping_needed(images[0])
-        
+        # === ONLY FOURIER ===
         restored_images = []
         fourier_files = []
         
@@ -185,6 +175,7 @@ def process_document():
             fourier_restored = fourier_document_restoration(img, radius=radius, alpha=alpha)
             restored_images.append(fourier_restored)
             
+            # Save Fourier version
             if file_ext.lower() == 'pdf':
                 fourier_file = f"{process_id}_page_{i+1}_fourier.png"
             else:
@@ -197,6 +188,7 @@ def process_document():
         preview_file = fourier_files[0]
         preview_path = f"/api/preview/{preview_file}"
         
+        # Save to history
         history_entry = {
             'id': process_id,
             'original_filename': filename,
@@ -211,11 +203,7 @@ def process_document():
             },
             'fourier_files': fourier_files,
             'cleaned_files': [],
-            'page_count': len(restored_images),
-            'crop_info': {
-                'needs_crop': needs_crop,
-                'crop_confidence': crop_confidence
-            }
+            'page_count': len(restored_images)
         }
         
         history_path = os.path.join(HISTORY_FOLDER, f"{process_id}.json")
@@ -230,9 +218,7 @@ def process_document():
             'shadow_intensity': shadow_intensity,
             'preview_url': preview_path,
             'page_count': len(restored_images),
-            'fourier_files': fourier_files,
-            'needs_crop': needs_crop,
-            'crop_confidence': crop_confidence
+            'fourier_files': fourier_files
         }), 200
     
     except Exception as e:
@@ -259,23 +245,30 @@ def apply_cleaning(process_id):
         if cleaning_strength not in ['light', 'medium', 'heavy']:
             cleaning_strength = 'medium'
         
+        # Get the Fourier files
         fourier_files = history['fourier_files']
         cleaned_files = []
         
+        # Apply cleaning to each Fourier image
         for fourier_file in fourier_files:
             fourier_path = os.path.join(RESTORED_FOLDER, fourier_file)
             
             if not os.path.exists(fourier_path):
                 return jsonify({'error': f'File not found: {fourier_file}'}), 404
             
+            # Read the Fourier result
             img = cv2.imread(fourier_path)
+            
+            # Apply cleaning
             cleaned_img = gentle_document_cleaning(img, cleaning_strength=cleaning_strength)
             
+            # Save as separate cleaned file
             cleaned_file = fourier_file.replace('_fourier.png', '_cleaned.png')
             cleaned_path = os.path.join(RESTORED_FOLDER, cleaned_file)
             cv2.imwrite(cleaned_path, cleaned_img)
             cleaned_files.append(cleaned_file)
         
+        # Update history
         history['settings']['cleaned'] = True
         history['settings']['cleaning_strength'] = cleaning_strength
         history['cleaned_files'] = cleaned_files
@@ -283,6 +276,7 @@ def apply_cleaning(process_id):
         with open(history_path, 'w') as f:
             json.dump(history, f, indent=2)
         
+        # Return preview of first cleaned image
         preview_path = f"/api/preview/{cleaned_files[0]}"
         
         return jsonify({
@@ -316,16 +310,9 @@ def get_preview(filename):
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/download/<process_id>/<format>', methods=['POST'])
+@app.route('/api/download/<process_id>/<format>')
 def download_document(process_id, format):
-    """
-    Download restored document with optional smart cropping.
-    
-    Request body:
-    {
-        'crop': True/False  # Apply smart cropping
-    }
-    """
+    """Download restored document"""
     try:
         history_path = os.path.join(HISTORY_FOLDER, f"{process_id}.json")
         if not os.path.exists(history_path):
@@ -334,10 +321,7 @@ def download_document(process_id, format):
         with open(history_path, 'r') as f:
             history = json.load(f)
         
-        # Get crop preference from request (default: False)
-        request_data = request.get_json() or {}
-        apply_crop = request_data.get('crop', False)
-        
+        # Use cleaned files if available, otherwise Fourier
         if history['settings']['cleaned'] and history['cleaned_files']:
             files_to_use = history['cleaned_files']
         else:
@@ -347,32 +331,12 @@ def download_document(process_id, format):
         
         if format == 'original':
             file_path = os.path.join(RESTORED_FOLDER, files_to_use[0])
-            img = cv2.imread(file_path)
-            
-            # === APPLY SMART CROPPING IF REQUESTED ===
-            if apply_crop:
-                img, crop_info = smart_crop_document(img, auto_crop=True)
-            
-            # Convert to PNG bytes
-            _, buffer = cv2.imencode('.png', img)
-            img_bytes = io.BytesIO(buffer.tobytes())
-            img_bytes.seek(0)
-            
-            return send_file(
-                img_bytes, 
-                mimetype='image/png',
-                as_attachment=True,
-                download_name=f"{original_name}_restored.png"
-            )
+            return send_file(file_path, as_attachment=True, 
+                           download_name=f"{original_name}_restored.png")
         
         elif format == 'pdf':
             if len(files_to_use) == 1:
                 img = cv2.imread(os.path.join(RESTORED_FOLDER, files_to_use[0]))
-                
-                # === APPLY SMART CROPPING IF REQUESTED ===
-                if apply_crop:
-                    img, crop_info = smart_crop_document(img, auto_crop=True)
-                
                 temp_pdf_path = os.path.join(RESTORED_FOLDER, f"{process_id}_temp.pdf")
                 image_to_pdf(img, temp_pdf_path)
                 
@@ -382,39 +346,22 @@ def download_document(process_id, format):
                 os.remove(temp_pdf_path)
                 output_buffer.seek(0)
                 
-                return send_file(
-                    output_buffer, 
-                    mimetype='application/pdf',
-                    as_attachment=True,
-                    download_name=f"{original_name}_restored.pdf"
-                )
+                return send_file(output_buffer, mimetype='application/pdf',
+                               as_attachment=True, 
+                               download_name=f"{original_name}_restored.pdf")
             else:
-                # Multi-page PDF
                 images = []
                 for file in files_to_use:
                     img = cv2.imread(os.path.join(RESTORED_FOLDER, file))
-                    
-                    # === APPLY SMART CROPPING IF REQUESTED ===
-                    if apply_crop:
-                        img, crop_info = smart_crop_document(img, auto_crop=True)
-                    
                     pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
                     images.append(pil_img)
                 
                 output_buffer = io.BytesIO()
-                images[0].save(
-                    output_buffer, 'PDF', 
-                    save_all=True, 
-                    append_images=images[1:]
-                )
+                images[0].save(output_buffer, 'PDF', save_all=True, append_images=images[1:])
                 output_buffer.seek(0)
-                
-                return send_file(
-                    output_buffer, 
-                    mimetype='application/pdf',
-                    as_attachment=True,
-                    download_name=f"{original_name}_restored.pdf"
-                )
+                return send_file(output_buffer, mimetype='application/pdf',
+                               as_attachment=True,
+                               download_name=f"{original_name}_restored.pdf")
         
         return jsonify({'error': 'Invalid format'}), 400
     
@@ -422,44 +369,6 @@ def download_document(process_id, format):
         print(f"Error in download_document: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/crop-preview/<process_id>', methods=['GET'])
-def crop_preview(process_id):
-    """Get preview of what the cropped version would look like"""
-    try:
-        history_path = os.path.join(HISTORY_FOLDER, f"{process_id}.json")
-        if not os.path.exists(history_path):
-            return jsonify({'error': 'Process not found'}), 404
-        
-        with open(history_path, 'r') as f:
-            history = json.load(f)
-        
-        if history['settings']['cleaned'] and history['cleaned_files']:
-            files_to_use = history['cleaned_files']
-        else:
-            files_to_use = history['fourier_files']
-        
-        file_path = os.path.join(RESTORED_FOLDER, files_to_use[0])
-        img = cv2.imread(file_path)
-        
-        # Apply cropping
-        cropped, crop_info = smart_crop_document(img, auto_crop=True)
-        
-        # Save temporary preview
-        crop_preview_file = f"{process_id}_crop_preview.png"
-        crop_preview_path = os.path.join(RESTORED_FOLDER, crop_preview_file)
-        cv2.imwrite(crop_preview_path, cropped)
-        
-        return jsonify({
-            'success': True,
-            'preview_url': f"/api/preview/{crop_preview_file}",
-            'crop_info': crop_info
-        }), 200
-    
-    except Exception as e:
-        print(f"Error in crop_preview: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -495,6 +404,7 @@ def delete_history_entry(process_id):
         with open(history_path, 'r') as f:
             history = json.load(f)
         
+        # Delete all related files
         for file_list in [history.get('fourier_files', []), history.get('cleaned_files', [])]:
             for restored_file in file_list:
                 file_path = os.path.join(RESTORED_FOLDER, restored_file)
@@ -531,6 +441,7 @@ def reprocess_document(process_id):
         radius = max(10, min(100, radius))
         alpha = max(0.1, min(2.0, alpha))
         
+        # Find original uploaded file
         uploaded_file = None
         for upload_file in os.listdir(UPLOAD_FOLDER):
             if upload_file.startswith(process_id):
@@ -548,12 +459,14 @@ def reprocess_document(process_id):
             img = cv2.imread(uploaded_file)
             images = [img]
         
+        # === DELETE OLD FOURIER AND CLEANED FILES ===
         for file_list in [history.get('fourier_files', []), history.get('cleaned_files', [])]:
             for old_file in file_list:
                 old_path = os.path.join(RESTORED_FOLDER, old_file)
                 if os.path.exists(old_path):
                     os.remove(old_path)
         
+        # === PROCESS WITH NEW FOURIER SETTINGS ===
         new_fourier_files = []
         for i, img in enumerate(images):
             fourier_restored = fourier_document_restoration(img, radius=radius, alpha=alpha)
@@ -567,6 +480,7 @@ def reprocess_document(process_id):
             cv2.imwrite(fourier_full_path, fourier_restored)
             new_fourier_files.append(fourier_file)
         
+        # Update history
         history['settings'] = {
             'radius': radius,
             'alpha': alpha,
@@ -601,5 +515,4 @@ def health_check():
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(debug=False, host='0.0.0.0', port=port)
+    app.run(debug=True, port=5000, host='localhost')
