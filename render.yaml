@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: document-restorer-api
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn app:app"
+    pythonVersion: 3.9
+    envVars:
+      - key: FLASK_ENV
+        value: production
