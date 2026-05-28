@@ -55,6 +55,7 @@ frontend/build/
 uploads/
 restored/
 history/
+backups/
 
 # Environment variables
 .env
