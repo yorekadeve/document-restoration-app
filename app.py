@@ -23,7 +23,7 @@ def smart_crop_document(image, auto_crop=True):
     return image, {'applied': False, 'bbox': None, 'confidence': 0.0}
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["https://document-restoration-ui.vercel.app"])
 
 # Configuration
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
